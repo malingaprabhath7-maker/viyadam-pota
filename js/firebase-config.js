@@ -1,15 +1,13 @@
-// Paste your Firebase web app config here (Firebase console → Project settings → Your apps → Web app).
+// Firebase web app config (Firebase console → Project settings → Your apps → Web app).
 // These values are public by design; your data is protected by the rules in firestore.rules.
-// While this is null the app runs in guest-only mode (data saved in the browser).
-//
-// Example:
-// export const firebaseConfig = {
-//   apiKey: "AIza...",
-//   authDomain: "your-project.firebaseapp.com",
-//   projectId: "your-project",
-//   storageBucket: "your-project.appspot.com",
-//   messagingSenderId: "1234567890",
-//   appId: "1:1234567890:web:abc123",
-// };
+// Set this to null to run the app in guest-only mode (data saved in the browser).
 
-export const firebaseConfig = null;
+export const firebaseConfig = {
+  apiKey: "AIzaSyC-vA3NEGl3LS4_2i1ArSnY2_bUKYDzSUs",
+  authDomain: "viyadam-pota.firebaseapp.com",
+  projectId: "viyadam-pota",
+  storageBucket: "viyadam-pota.firebasestorage.app",
+  messagingSenderId: "959099667115",
+  appId: "1:959099667115:web:a89d104d07cb13304badee",
+  measurementId: "G-7Z4NWDKBWZ",
+};
