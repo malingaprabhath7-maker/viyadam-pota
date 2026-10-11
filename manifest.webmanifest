@@ -1,0 +1,17 @@
+{
+  "name": "වියදම් පොත · Viyadam Pota",
+  "short_name": "වියදම් පොත",
+  "description": "Bilingual daily expense tracker with weekend totals and monthly summaries.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F2F4EF",
+  "theme_color": "#16302B",
+  "lang": "si",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

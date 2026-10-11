@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Each signed-in person can read and write only their own documents.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['profile', 'categories', 'recurring', 'budget', 'settings', 'createdAt']);
+
+      match /entries/{entryId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['type', 'd', 'a', 'c', 'n', 'pm', 'rec'])
+          && request.resource.data.type in ['exp', 'inc']
+          && request.resource.data.d is string && request.resource.data.d.size() == 10
+          && request.resource.data.a is number && request.resource.data.a > 0 && request.resource.data.a < 1000000000
+          && request.resource.data.c is string && request.resource.data.c.size() <= 60
+          && request.resource.data.n is string && request.resource.data.n.size() <= 120;
+      }
+    }
+  }
+}

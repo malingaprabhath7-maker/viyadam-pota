@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="si" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>වියදම් පොත · Viyadam Pota — Expense tracker</title>
+  <meta name="description" content="A free, bilingual (Sinhala & English) expense tracker: log daily spending, see weekday vs weekend totals and get a monthly summary. Works on phone and laptop, even offline.">
+  <meta name="theme-color" content="#16302B">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <!-- Social preview (LinkedIn, WhatsApp, Facebook, X). og:url and og:image are filled in on deploy by the GitHub Action. -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Viyadam Pota — වියදම් පොත">
+  <meta property="og:description" content="Free bilingual expense tracker. Daily spending, weekend totals and a monthly summary — on phone and laptop.">
+  <meta property="og:image" content="https://malingaprabhath7-maker.github.io/viyadam-pota/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="https://malingaprabhath7-maker.github.io/viyadam-pota/">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+Sinhala:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <noscript><p style="padding:24px">Please enable JavaScript to use this app.</p></noscript>
+
+  <!-- Boot splash: shown until we know whether someone is signed in -->
+  <div id="boot" class="boot"><div class="mark" aria-hidden="true"></div></div>
+
+  <!-- ============ AUTH ============ -->
+  <main id="auth" class="auth" hidden>
+    <div class="auth-side">
+      <div class="logo-row"><img src="icons/icon.svg" alt="" width="40" height="40"><b data-t="appName">වියදම් පොත</b></div>
+      <h1 class="auth-h" id="auth-hero"></h1>
+      <ul class="auth-points" id="auth-points"></ul>
+    </div>
+    <div class="auth-card">
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button type="button" data-lang="si">සිංහල</button><button type="button" data-lang="en">English</button>
+      </div>
+      <div class="seg" role="tablist">
+        <button type="button" role="tab" id="tab-login" data-authtab="login" data-t="login">ඇතුළු වන්න</button>
+        <button type="button" role="tab" id="tab-signup" data-authtab="signup" data-t="signup">ගිණුමක් හදන්න</button>
+      </div>
+
+      <form id="f-login" class="stack" novalidate>
+        <div class="field"><label for="li-email" data-t="email">Email</label><input id="li-email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="li-pw" data-t="password">මුරපදය</label>
+          <div class="pw"><input id="li-pw" type="password" autocomplete="current-password" required><button type="button" class="pw-eye" data-eye="li-pw" aria-label="Show password"></button></div></div>
+        <p class="form-err" id="li-err" role="alert" hidden></p>
+        <button class="btn" type="submit" data-t="login">ඇතුළු වන්න</button>
+        <button class="link" type="button" data-action="forgot" data-t="forgot">මුරපදය අමතකද?</button>
+      </form>
+
+      <form id="f-signup" class="stack" novalidate hidden>
+        <div class="field"><label for="su-name" data-t="yourName">ඔබේ නම</label><input id="su-name" autocomplete="name" maxlength="40" required></div>
+        <div class="field"><label for="su-email" data-t="email">Email</label><input id="su-email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="su-pw" data-t="password">මුරපදය</label>
+          <div class="pw"><input id="su-pw" type="password" autocomplete="new-password" minlength="8" required><button type="button" class="pw-eye" data-eye="su-pw" aria-label="Show password"></button></div>
+          <div class="meter" id="su-meter"><i></i></div><small class="hint" id="su-pwhint"></small></div>
+        <div class="field"><label for="su-pw2" data-t="password2">මුරපදය නැවත</label><input id="su-pw2" type="password" autocomplete="new-password" required></div>
+        <p class="form-err" id="su-err" role="alert" hidden></p>
+        <button class="btn" type="submit" data-t="signup">ගිණුමක් හදන්න</button>
+      </form>
+
+      <form id="f-forgot" class="stack" novalidate hidden>
+        <p class="muted" data-t="forgotHelp"></p>
+        <div class="field"><label for="fg-email" data-t="email">Email</label><input id="fg-email" type="email" autocomplete="email" required></div>
+        <p class="form-err" id="fg-err" role="alert" hidden></p>
+        <p class="form-ok" id="fg-ok" hidden></p>
+        <button class="btn" type="submit" data-t="sendReset">Reset link එක යවන්න</button>
+        <button class="link" type="button" data-authtab="login" data-t="backToLogin">ආපසු</button>
+      </form>
+
+      <div class="or"><span data-t="or">හෝ</span></div>
+      <button class="btn ghost wide" type="button" data-action="guest" data-t="guest">ගිණුමක් නැතුව භාවිතා කරන්න</button>
+      <p class="tiny muted" data-t="guestHelp"></p>
+    </div>
+  </main>
+
+  <!-- ============ APP ============ -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="brand"><img src="icons/icon.svg" alt="" width="30" height="30"><div><b data-t="appName">වියදම් පොත</b><small id="who"></small></div></div>
+      <div class="top-actions">
+        <div class="lang-switch small" role="group" aria-label="Language"><button type="button" data-lang="si">සිං</button><button type="button" data-lang="en">EN</button></div>
+        <button type="button" class="avatar-btn" data-nav="settings" aria-label="Profile"><span class="avatar" id="top-avatar"></span></button>
+      </div>
+    </header>
+
+    <nav class="nav" aria-label="Main">
+      <button type="button" data-nav="today"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span data-t="navToday">අද</span></button>
+      <button type="button" data-nav="week"><svg viewBox="0 0 24 24"><path d="M5 20V12M10 20V6M15 20v-9M20 20V9"/></svg><span data-t="navWeek">සතිය</span></button>
+      <button type="button" data-nav="month"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span data-t="navMonth">මාසය</span></button>
+      <button type="button" data-nav="history"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><span data-t="navHistory">ඉතිහාසය</span></button>
+      <button type="button" data-nav="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span data-t="navSettings">සැකසුම්</span></button>
+    </nav>
+
+    <main class="main">
+      <div id="banner"></div>
+
+      <!-- TODAY -->
+      <section class="view" id="v-today">
+        <div class="today-grid">
+          <div class="stack">
+            <div class="hero">
+              <span class="eyebrow" id="today-date"></span>
+              <div class="big"><span class="cur" data-cur></span><span id="today-total">0</span></div>
+              <div class="mini-stats" id="today-mini"></div>
+            </div>
+            <div id="today-balance"></div>
+
+            <form id="f-entry" class="card entry" novalidate>
+              <div class="seg type-seg" role="group">
+                <button type="button" data-type="exp" data-t="expense">වියදම</button>
+                <button type="button" data-type="inc" data-t="income">ආදායම</button>
+              </div>
+              <label class="amount" for="e-amount"><span data-cur></span><input id="e-amount" inputmode="decimal" autocomplete="off" placeholder="0" aria-describedby="e-amount-hint"></label>
+              <small class="hint" id="e-amount-hint" data-t="amountHint"></small>
+              <div class="chips" id="e-cats" role="group"></div>
+              <div class="grid2">
+                <div class="field"><label for="e-note" data-t="note">විස්තරය</label><input id="e-note" maxlength="120" autocomplete="off" list="note-suggest"></div>
+                <div class="field"><label for="e-date" data-t="date">දිනය</label><input id="e-date" type="date"></div>
+              </div>
+              <datalist id="note-suggest"></datalist>
+              <div class="field"><span class="label" data-t="method">ගෙවීම</span><div class="seg methods" id="e-methods" role="group"></div></div>
+              <p class="form-err" id="e-err" role="alert" hidden></p>
+              <div class="row-actions">
+                <button class="btn grow" type="submit" id="e-submit" data-t="add">එකතු කරන්න</button>
+                <button class="btn ghost" type="button" id="e-cancel" data-t="cancel" hidden>අවලංගු</button>
+              </div>
+            </form>
+            <div id="quick"></div>
+          </div>
+          <div class="stack">
+            <h2 data-t="todayList">අද ඇතුළත් කිරීම්</h2>
+            <div id="today-list"></div>
+            <h2 data-t="recent">පසුගිය දින 7</h2>
+            <div id="recent-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- WEEK -->
+      <section class="view" id="v-week" hidden></section>
+      <!-- MONTH -->
+      <section class="view" id="v-month" hidden></section>
+      <!-- HISTORY -->
+      <section class="view" id="v-history" hidden>
+        <div class="card filters">
+          <div class="field grow"><label for="h-q" data-t="search">සොයන්න</label><input id="h-q" type="search" autocomplete="off"></div>
+          <div class="field"><label for="h-cat" data-t="category">වර්ගය</label><select id="h-cat"></select></div>
+          <div class="field"><label for="h-from" data-t="from">සිට</label><input id="h-from" type="date"></div>
+          <div class="field"><label for="h-to" data-t="to">දක්වා</label><input id="h-to" type="date"></div>
+        </div>
+        <div class="row-between"><span class="muted" id="h-count"></span><button class="btn ghost sm" type="button" data-action="export-filtered" data-t="exportCsv">CSV</button></div>
+        <div id="h-list"></div>
+      </section>
+      <!-- SETTINGS -->
+      <section class="view" id="v-settings" hidden></section>
+    </main>
+  </div>
+
+  <dialog id="dlg" class="dlg"><form method="dialog" class="stack"><p id="dlg-msg"></p><div id="dlg-extra"></div><div class="row-actions end"><button class="btn ghost" value="cancel" data-t="cancel">අවලංගු</button><button class="btn danger" value="ok" id="dlg-ok"></button></div></form></dialog>
+  <div class="toast" id="toast" role="status" hidden><span id="toast-msg"></span><button type="button" id="toast-btn"></button></div>
+  <input type="file" id="file-restore" accept="application/json,.json" hidden>
+  <input type="file" id="file-photo" accept="image/*" hidden>
+</body>
+</html>
