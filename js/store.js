@@ -42,6 +42,7 @@ export function normalise(raw) {
         id: e.id, type: e.type === "inc" ? "inc" : "exp", d: e.d, a: Math.round(+e.a * 100) / 100,
         c: e.c, n: String(e.n || "").slice(0, 120), pm: METHODS.includes(e.pm) ? e.pm : "cash",
         ...(e.rec ? { rec: String(e.rec) } : {}),
+        ...(e.by ? { by: String(e.by) } : {}),
       }))
     : [];
   const categories = Array.isArray(raw.categories) && raw.categories.length
@@ -61,6 +62,7 @@ export function normalise(raw) {
         id: String(r.id), type: r.type === "inc" ? "inc" : "exp", a: Math.round(+r.a * 100) / 100,
         c: ids.has(r.c) ? r.c : "other", n: String(r.n || "").slice(0, 120), pm: METHODS.includes(r.pm) ? r.pm : "cash",
         day: Math.min(31, Math.max(1, parseInt(r.day, 10) || 1)), start: r.start, paused: !!r.paused,
+        ...(/^\d{4}-\d{2}$/.test(r.last) ? { last: r.last } : {}),
       }))
     : [];
   const byCat = {};

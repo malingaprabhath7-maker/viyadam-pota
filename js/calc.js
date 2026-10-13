@@ -199,3 +199,60 @@ export function toCSV(entries, catName, methodName) {
   }
   return "﻿" + rows.join("\r\n");
 }
+
+/**
+ * Trends over the last `n` months ending at (endYear, endMonth). The current month is marked `partial`.
+ * Insights compare the latest complete month with the average of the months before it.
+ */
+export function trendSummary(entries, endYear, endMonth, n, today = new Date()) {
+  const months = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(endYear, endMonth - i, 1);
+    const y = d.getFullYear(), m = d.getMonth();
+    const [f, l] = monthBounds(y, m);
+    const items = between(entries, toISO(f), toISO(l));
+    const exp = expenses(items);
+    const byCat = {};
+    for (const e of exp) byCat[e.c] = round2((byCat[e.c] || 0) + e.a);
+    const expense = sum(exp), income = sum(incomes(items));
+    months.push({
+      y, m, expense, income, balance: round2(income - expense), byCat,
+      weekend: sum(exp.filter((e) => isWeekend(fromISO(e.d)))),
+      partial: y === today.getFullYear() && m === today.getMonth(),
+      future: f > today,
+    });
+  }
+  const done = months.filter((x) => !x.partial && !x.future);
+  const withData = done.filter((x) => x.expense > 0 || x.income > 0);
+  const avgExpense = withData.length ? round2(withData.reduce((a, x) => a + x.expense, 0) / withData.length) : 0;
+  const totalIncome = round2(months.reduce((a, x) => a + x.income, 0));
+  const totalExpense = round2(months.reduce((a, x) => a + x.expense, 0));
+  const saved = round2(totalIncome - totalExpense);
+  const savingsRate = totalIncome > 0 ? Math.round((saved / totalIncome) * 100) : null;
+
+  // categories ranked by total over the period
+  const catTotals = {};
+  for (const x of months) for (const [c, v] of Object.entries(x.byCat)) catTotals[c] = round2((catTotals[c] || 0) + v);
+  const categories = Object.entries(catTotals).sort((a, b) => b[1] - a[1]).map(([c, total]) => {
+    const series = months.map((x) => x.byCat[c] || 0);
+    // compare the last complete month with earlier complete months that had any spending at all,
+    // so months before someone started using the app don't count as zeros
+    const doneSeries = months.map((x, i) => (x.partial || x.future || x.expense === 0 ? null : series[i])).filter((v) => v !== null);
+    const last = doneSeries.length ? doneSeries[doneSeries.length - 1] : 0;
+    const before = doneSeries.slice(0, -1);
+    const beforeAvg = before.length ? before.reduce((a, b) => a + b, 0) / before.length : 0;
+    return { c, total, series, last, change: beforeAvg > 0 ? Math.round(((last - beforeAvg) / beforeAvg) * 100) : null };
+  });
+
+  let highest = null, lowest = null;
+  for (const x of withData) {
+    if (!highest || x.expense > highest.expense) highest = x;
+    if (!lowest || x.expense < lowest.expense) lowest = x;
+  }
+  const weekendTotal = round2(months.reduce((a, x) => a + x.weekend, 0));
+  return {
+    months, avgExpense, totalIncome, totalExpense, saved, savingsRate, categories, highest, lowest,
+    weekendShare: totalExpense > 0 ? Math.round((weekendTotal / totalExpense) * 100) : 0,
+    monthsWithData: withData.length,
+  };
+}

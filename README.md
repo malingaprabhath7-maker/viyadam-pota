@@ -22,6 +22,10 @@ A free, bilingual (**Sinhala & English**) expense tracker. Log what you spend ea
 | **Daily logging** | Expense or income, category, note, date and payment method (cash / card / online) · type sums like `250+120` · one-tap repeat for frequent items · edit, delete and undo |
 | **Week view** | Mon–Sun chart with weekend days highlighted · weekday vs. weekend totals · comparison with the same point last week |
 | **Month view** | Spending, income, balance, daily average, projection, highest day, by category, by payment method, by week, five biggest expenses, and a 12-month overview |
+| **Trends** | 3, 6 or 12-month view of spending vs income, savings rate, category changes with sparklines and plain-language insights |
+| **Family books** | Create a shared book, invite family with a code (or WhatsApp), everyone adds expenses and sees who added what; owner manages members |
+| **Bill scanning** | Snap a receipt and the total, date, shop and category are filled in — read on the phone itself with Tesseract.js, nothing uploaded |
+| **Daily reminder** | Repeating Google Calendar / .ics reminder, plus a notification and in-app nudge when nothing was logged |
 | **Budgets** | Monthly limit plus per-category limits, with warnings at 80% and when you go over |
 | **Repeating items** | Rent, bills or salary are added automatically on the chosen day each month |
 | **Custom categories** | Add your own expense or income categories with a colour |
@@ -45,7 +49,8 @@ js/calc.js            pure date & money logic (unit-tested)
 js/i18n.js            Sinhala and English text
 js/store.js           data shape and validation
 js/backend-local.js   guest storage (localStorage)
-js/cloud.js           Firebase accounts and sync
+js/cloud.js           Firebase accounts, sync and shared family books
+js/receipt.js         bill photo reading and total detection (unit-tested)
 js/firebase-config.js your Firebase keys (null = guest-only mode)
 firestore.rules       database security rules
 sw.js                 offline cache

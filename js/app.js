@@ -73,12 +73,13 @@ function ask(message, okLabel, opts = {}) {
   $("#dlg-ok").textContent = okLabel;
   $("#dlg-ok").className = "btn " + (opts.danger === false ? "" : "danger");
   $("#dlg-extra").innerHTML = opts.password
-    ? `<div class="field"><label for="dlg-pw">${esc(t("password"))}</label><input id="dlg-pw" type="password" autocomplete="current-password"></div>` : "";
+    ? `<div class="field"><label for="dlg-pw">${esc(t("password"))}</label><input id="dlg-pw" type="password" autocomplete="current-password"></div>`
+    : opts.text !== undefined ? `<div class="field"><input id="dlg-pw" maxlength="40" value="${esc(opts.text)}"></div>` : "";
   return new Promise((resolve) => {
-    dlg.onclose = () => resolve({ ok: dlg.returnValue === "ok", value: opts.password ? $("#dlg-pw").value : null });
+    dlg.onclose = () => resolve({ ok: dlg.returnValue === "ok", value: $("#dlg-pw") ? $("#dlg-pw").value : null });
     dlg.returnValue = "";
     dlg.showModal();
-    if (opts.password) $("#dlg-pw").focus();
+    if ($("#dlg-pw")) $("#dlg-pw").focus();
   });
 }
 
@@ -125,6 +126,7 @@ async function boot() {
   applyStaticText();
   wireStatic();
   registerSW();
+  scheduleReminder();
 
   if (!firebaseConfig) { startGuest(); return; }
   try {
@@ -151,17 +153,37 @@ function startGuest() {
   showApp();
 }
 
-async function startAccount(user) {
+let myBooks = [], booksUnsub = null, booksFor = null;
+const activeBookKey = (uid) => (prefs.activeBook && prefs.activeBook[uid]) || null;
+
+async function startAccount(user, bookId = activeBookKey(user.uid)) {
   stopBackend();
   prefs.mode = "account"; savePrefs();
-  backend = cloud.createCloudBackend(user);
+  if (booksFor !== user.uid) {
+    if (booksUnsub) booksUnsub();
+    booksFor = user.uid; myBooks = [];
+    booksUnsub = cloud.watchMyBooks(user.uid, (list) => { myBooks = list; renderHeader(); if (view === "settings") render(); });
+  }
+  backend = cloud.createCloudBackend(user, bookId, {
+    onLost: () => { toast(t("bookLost")); setActiveBook(user, null); },
+  });
   let first = true;
   backend.start((d, st) => {
     onData(d, st);
-    if (first) { first = false; offerGuestMove(); }
+    if (first) { first = false; if (!bookId) offerGuestMove(); }
   });
   showApp();
 }
+function setActiveBook(user, bookId) {
+  prefs.activeBook = { ...(prefs.activeBook || {}), [user.uid]: bookId }; savePrefs();
+  resetEntryForm?.();
+  startAccount(user, bookId);
+}
+const memberName = (uid) => {
+  if (!data.book) return "";
+  if (uid === backend?.user?.uid) return t("you");
+  return ((data.book.memberNames || {})[uid] || "").split(/\s+/)[0];
+};
 
 function onData(d, status) {
   data = d;
@@ -325,6 +347,18 @@ function renderHeader() {
     who = `${name} · ${syncStatus.offline ? t("offline") : t("synced")}`;
   } else who = t("guestMode");
   $("#who").textContent = who;
+  const bar = $("#bookbar");
+  if (!(backend && backend.kind === "cloud")) { bar.hidden = true; return; }
+  const cur = backend.bookId || "";
+  bar.hidden = false;
+  bar.innerHTML = `<label for="book-sel"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3z"/><path d="M5 17a3 3 0 013-3h11"/></svg><span class="sr">${esc(t("book"))}</span></label>
+    <select id="book-sel">
+      <option value="">${esc(t("myBook"))}</option>
+      ${myBooks.map((b) => `<option value="${esc(b.id)}" ${b.id === cur ? "selected" : ""}>👨‍👩‍👧 ${esc(b.name)} (${(b.members || []).length})</option>`).join("")}
+      <option value="__manage">＋ ${esc(t("bookManage"))}</option>
+    </select>
+    ${data.book ? `<span class="members">${(data.book.members || []).map((u) => `<i title="${esc((data.book.memberNames || {})[u] || "")}">${esc((((data.book.memberNames || {})[u] || "?")[0] || "?").toUpperCase())}</i>`).join("")}</span>` : ""}`;
+  $("#book-sel").value = cur;
 }
 let guestBannerClosed = false;
 function renderBanner() {
@@ -339,6 +373,7 @@ function renderBanner() {
   if (view === "today") {
     for (const [c, v] of m.byCategory) { const lim = data.budget.byCat[c]; if (lim && v > lim) msgs.push({ kind: "bad", text: t("catOver", catName(c)) }); }
   }
+  if (view === "today" && reminderDue() && !loggedToday()) msgs.push({ kind: "info", text: t("remNudge") });
   if (cloud && backend && backend.kind === "local" && !guestBannerClosed && view === "today") {
     msgs.push({ kind: "info", text: t("guestBanner"), action: `<button class="btn sm" data-action="to-signup">${esc(t("createAccount"))}</button><button class="iconbtn" data-action="close-guest" aria-label="Close">×</button>` });
   }
@@ -350,7 +385,7 @@ function renderBanner() {
    ============================================================ */
 function entryRow(e, { showDate = false } = {}) {
   const c = catById(e.c);
-  const sub = [e.n, showDate ? shortDate(e.d) : "", methodName(e.pm)].filter(Boolean).map(esc).join(" · ");
+  const sub = [e.n, showDate ? shortDate(e.d) : "", methodName(e.pm), data.book && e.by ? memberName(e.by) : ""].filter(Boolean).map(esc).join(" · ");
   return `<div class="item${e.type === "inc" ? " inc" : ""}">
     <i class="sw" style="background:${esc(c.color)}"></i>
     <div class="txt"><b>${esc(catName(e.c))}${e.rec ? ` <span class="rec" title="${esc(t("sRecurring"))}">${ICON.repeat}</span>` : ""}</b><span>${sub}</span></div>
@@ -453,6 +488,7 @@ function resetEntryForm() {
   form.editing = null; form.cat = null; form.method = "cash";
   $("#e-amount").value = ""; $("#e-note").value = ""; $("#e-date").value = todayISO();
   $("#e-err").hidden = true;
+  const st = $("#scan-status"); if (st) st.hidden = true;
   renderEntryForm();
 }
 
@@ -532,7 +568,110 @@ function renderWeek() {
 const isCurrentMonth = (y, m) => { const n = new Date(); return n.getFullYear() === y && n.getMonth() === m; };
 function monthYM(offset) { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth() + offset, 1); return [d.getFullYear(), d.getMonth()]; }
 
+let monthMode = "month", trendN = 6;
+const modeSeg = () => `<div class="seg mode-seg" role="group">
+  <button type="button" data-action="mode-month" aria-pressed="${monthMode === "month"}">${esc(t("navMonth"))}</button>
+  <button type="button" data-action="mode-trends" aria-pressed="${monthMode === "trends"}">${esc(t("trends"))}</button></div>`;
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const k of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (k * p >= v) return k * p;
+  return 10 * p;
+}
+const shortMoney = (n) => (n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(Math.round(n)));
+const monthShort = (m) => MONTHS[lang][m].slice(0, lang === "si" ? 4 : 3);
+
+function trendBarsSVG(tr, width = 640) {
+  // drawn at the container's real pixel width so labels stay a readable size on phones and laptops
+  const W = Math.max(280, Math.round(width)), H = 240, L = 42, R = 6, T = 16, B = 34;
+  const n = tr.months.length;
+  const max = niceMax(Math.max(...tr.months.map((x) => Math.max(x.expense, x.income)), 1));
+  const ticks = [0, max / 2, max];
+  const y = (v) => T + (H - T - B) * (1 - v / max);
+  const gw = (W - L - R) / n, bw = Math.min(22, gw * 0.32), gap = 2;
+  const avgY = y(tr.avgExpense);
+  let out = `<svg viewBox="0 0 ${W} ${H}" class="tchart" role="img" aria-label="${esc(t("trendChart"))}">`;
+  for (const v of ticks) out += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 6}" y="${y(v) + 4}" class="ax" text-anchor="end">${shortMoney(v)}</text>`;
+  tr.months.forEach((x, i) => {
+    const cx = L + gw * i + gw / 2;
+    const bar = (v, cls, xpos) => { const top = y(v), h = Math.max(y(0) - top, v > 0 ? 2 : 0); return h ? `<path d="M${xpos},${y(0)} v${-(h - 4)} q0,-4 4,-4 h${bw - 8} q4,0 4,4 v${h - 4} z" class="${cls}"/>` : ""; };
+    out += `<g class="tgrp${x.partial ? " partial" : ""}"><title>${esc(monthLabel(x.y, x.m))}${x.partial ? " (" + t("soFar") + ")" : ""}
+${t("expense")}: ${money(x.expense)}
+${t("income")}: ${money(x.income)}
+${t("balance")}: ${money(x.balance)}</title>
+      <rect x="${cx - gw / 2}" y="${T}" width="${gw}" height="${H - T - B}" class="hit"/>
+      ${bar(x.income, "b-inc", cx + gap / 2)}${bar(x.expense, "b-exp", cx - bw - gap / 2)}
+      <text x="${cx}" y="${H - B + 16}" class="ax" text-anchor="middle">${esc(monthShort(x.m))}</text>
+      ${x.partial ? `<text x="${cx}" y="${H - B + 29}" class="ax small" text-anchor="middle">${esc(t("soFar"))}</text>` : ""}</g>`;
+  });
+  if (tr.avgExpense > 0) out += `<line x1="${L}" x2="${W - R}" y1="${avgY}" y2="${avgY}" class="avg"/>`;
+  out += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="base"/></svg>`;
+  return out;
+}
+
+function sparkSVG(series, color, partialLast) {
+  const W = 120, H = 30, P = 4, max = Math.max(...series, 1), n = series.length;
+  const pts = series.map((v, i) => [P + (n === 1 ? 0 : (i * (W - 2 * P)) / (n - 1)), H - P - (v / max) * (H - 2 * P)]);
+  const solid = partialLast ? pts.slice(0, -1) : pts;
+  const last = solid[solid.length - 1] || pts[0];
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="spk" aria-hidden="true"><polyline points="${solid.map((p) => p.join(",")).join(" ")}" style="stroke:${color}"/>`;
+  if (partialLast && pts.length > 1) s += `<polyline points="${pts.slice(-2).map((p) => p.join(",")).join(" ")}" class="dash" style="stroke:${color}"/>`;
+  return s + `<circle cx="${last[0]}" cy="${last[1]}" r="3.5" style="fill:${color}"/></svg>`;
+}
+
+function renderTrends() {
+  const now = new Date();
+  const tr = C.trendSummary(data.entries, now.getFullYear(), now.getMonth(), trendN, now);
+  const insights = [];
+  if (tr.highest && tr.monthsWithData > 1) insights.push(t("insHighest", monthLabel(tr.highest.y, tr.highest.m), money(tr.highest.expense)));
+  const ups = tr.categories.filter((c) => c.change !== null && c.change >= 15 && c.last > 0).sort((a, b) => b.change - a.change);
+  const downs = tr.categories.filter((c) => c.change !== null && c.change <= -15).sort((a, b) => a.change - b.change);
+  if (ups[0]) insights.push(t("insUp", catName(ups[0].c), ups[0].change));
+  if (downs[0]) insights.push(t("insDown", catName(downs[0].c), -downs[0].change));
+  if (tr.weekendShare) insights.push(t("insWeekend", tr.weekendShare));
+  if (tr.savingsRate !== null) insights.push(tr.savingsRate >= 0 ? t("insSaved", tr.savingsRate) : t("insOverspent"));
+
+  $("#v-month").innerHTML = `
+    ${modeSeg()}
+    <div class="row-between"><h2>${esc(t("trendsTitle", trendN))}</h2>
+      <div class="seg compact" role="group">${[3, 6, 12].map((k) => `<button type="button" data-action="trend-n" data-n="${k}" aria-pressed="${trendN === k}">${esc(t("nMonths", k))}</button>`).join("")}</div></div>
+    ${tr.monthsWithData === 0 && !tr.months.some((x) => x.expense) ? `<div class="empty">${esc(t("trendsEmpty"))}</div>` : `
+    <div class="stats">
+      <div class="stat"><small>${esc(t("avgMonthly"))}</small><b>${esc(money(tr.avgExpense))}</b></div>
+      <div class="stat"><small>${esc(t("totalSpent"))}</small><b>${esc(money(tr.totalExpense))}</b></div>
+      <div class="stat"><small>${esc(t("totalIncome"))}</small><b>${esc(money(tr.totalIncome))}</b></div>
+      <div class="stat"><small>${esc(t("savedPeriod"))}</small><b class="${tr.saved < 0 ? "neg" : "pos"}">${esc(money(tr.saved))}${tr.savingsRate !== null ? ` <em>${tr.savingsRate}%</em>` : ""}</b></div>
+    </div>
+    <div class="cols">
+      <div class="card stack">
+        <h3>${esc(t("spentVsIncome"))}</h3>
+        <div class="chart-wrap" id="trend-chart"></div>
+        <div class="legend"><span><i class="k-exp"></i>${esc(t("expense"))}</span><span><i class="k-inc"></i>${esc(t("income"))}</span><span><i class="k-avg"></i>${esc(t("avgLine"))}</span></div>
+        <details class="tbl-details"><summary>${esc(t("showTable"))}</summary>
+          <table class="tbl"><thead><tr><th>${esc(t("navMonth"))}</th><th class="r">${esc(t("expense"))}</th><th class="r">${esc(t("income"))}</th><th class="r">${esc(t("balance"))}</th></tr></thead>
+          <tbody>${tr.months.slice().reverse().map((x) => `<tr><td>${esc(monthLabel(x.y, x.m))}${x.partial ? ` <small class="muted">(${esc(t("soFar"))})</small>` : ""}</td><td class="r num">${fmt(x.expense)}</td><td class="r num">${fmt(x.income)}</td><td class="r num ${x.balance < 0 ? "neg" : ""}">${fmt(x.balance)}</td></tr>`).join("")}</tbody></table>
+        </details>
+      </div>
+      <div class="stack">
+        ${insights.length ? `<div class="card stack insights"><h3>${esc(t("insights"))}</h3><ul>${insights.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+        <div class="card stack"><h3>${esc(t("catTrends"))}</h3>
+          <div class="ctrend">${tr.categories.slice(0, 8).map((c) => `<div class="ctrow">
+            <span class="nm"><i style="background:${esc(catById(c.c).color)}"></i><span>${esc(catName(c.c))}</span></span>
+            ${sparkSVG(c.series, esc(catById(c.c).color), tr.months[tr.months.length - 1].partial)}
+            <span class="vv">${fmt(c.total)}${c.change !== null && c.change !== 0 ? `<small class="${c.change > 0 ? "up" : "down"}">${c.change > 0 ? "▲" : "▼"} ${Math.abs(c.change)}%</small>` : ""}</span></div>`).join("")}</div>
+          <p class="tiny muted">${esc(t("catTrendHelp"))}</p>
+        </div>
+      </div>
+    </div>`}`;
+  const box = $("#trend-chart");
+  if (box) box.innerHTML = trendBarsSVG(tr, box.clientWidth || 640);
+}
+let resizeT;
+window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (view === "month" && monthMode === "trends") renderTrends(); }, 200); });
+
 function renderMonth() {
+  if (monthMode === "trends") return renderTrends();
   const now = new Date();
   const [y, m] = monthYM(off.month);
   const s = C.monthSummary(data.entries, y, m, now);
@@ -547,6 +686,7 @@ function renderMonth() {
   const big = s.expenses.slice().sort((a, b) => b.a - a.a).slice(0, 5);
 
   $("#v-month").innerHTML = `
+    <div class="no-print">${modeSeg()}</div>
     <div class="print-head"><b>${esc(t("reportTitle", monthLabel(y, m)))}</b><span>${esc((data.profile && data.profile.name) || "")}</span></div>
     ${pager("month", monthLabel(y, m))}
     <div class="hero"><span class="eyebrow">${esc(t("monthExpense"))}</span>
@@ -684,6 +824,7 @@ function renderSettings() {
     <div class="settings-grid">
     <div class="stack">
     ${account}
+    ${booksCard(isCloud)}
     <div class="card stack">
       <h3>${esc(t("sLanguage"))} · ${esc(t("sTheme"))}</h3>
       <div class="seg" role="group">${["si", "en"].map((l) => `<button type="button" data-lang="${l}" aria-pressed="${lang === l}">${l === "si" ? "සිංහල" : "English"}</button>`).join("")}</div>
@@ -702,6 +843,7 @@ function renderSettings() {
     </div>
 
     <div class="stack">
+    ${reminderCard()}
     <div class="card stack">
       <h3>${esc(t("sRecurring"))}</h3><p class="muted">${esc(t("sRecurringHelp"))}</p>
       ${data.recurring.length ? `<div class="list">${data.recurring.map((r) => `<div class="item${r.type === "inc" ? " inc" : ""}${r.paused ? " paused" : ""}">
@@ -743,13 +885,115 @@ function renderSettings() {
 
     <div class="card stack danger-zone">
       <div class="row-actions wrap">
-        <button class="btn ghost danger-t" type="button" data-action="reset">${esc(t("sDanger"))}</button>
+        ${!data.book || data.book.owner === backend.user?.uid ? `<button class="btn ghost danger-t" type="button" data-action="reset">${esc(t("sDanger"))}</button>` : ""}
         ${isCloud ? `<button class="btn ghost danger-t" type="button" data-action="delete-account">${esc(t("deleteAccount"))}</button>` : ""}
       </div>
       <p class="tiny muted">${esc(isCloud ? "" : t("privacy"))} v2.0</p>
     </div>
     </div>
     </div>`;
+}
+
+/* ============================================================
+   Shared family books
+   ============================================================ */
+function booksCard(isCloud) {
+  if (!isCloud) return `<div class="card stack" id="s-books"><h3>${esc(t("sBooks"))}</h3><p class="muted">${esc(t("booksNeedAccount"))}</p></div>`;
+  const uid = backend.user.uid;
+  const rows = myBooks.map((b) => {
+    const owner = b.owner === uid;
+    const names = b.memberNames || {};
+    return `<div class="bookrow ${b.id === backend.bookId ? "active" : ""}">
+      <div class="row-between"><b>👨‍👩‍👧 ${esc(b.name)}</b>${b.id === backend.bookId ? `<span class="pill ok">${esc(t("bookOpen"))}</span>` : `<button class="btn ghost sm" type="button" data-action="book-open" data-id="${esc(b.id)}">${esc(t("bookOpenBtn"))}</button>`}</div>
+      <div class="chips">${(b.members || []).map((u) => `<span class="chip static">${esc(names[u] || "…")}${u === b.owner ? ` <small class="muted">${esc(t("owner"))}</small>` : ""}${owner && u !== uid ? `<button type="button" class="x" data-action="book-kick" data-id="${esc(b.id)}" data-uid="${esc(u)}" aria-label="${esc(t("removeMember"))}">×</button>` : ""}</span>`).join("")}</div>
+      <div class="invite"><span class="muted">${esc(t("inviteCode"))}</span><code>${esc(b.inviteCode || "")}</code>
+        <button class="btn ghost sm" type="button" data-action="book-copy" data-id="${esc(b.id)}">${esc(t("copy"))}</button>
+        <a class="btn ghost sm" href="https://wa.me/?text=${encodeURIComponent(t("inviteMsg", b.name, b.inviteCode, appURL()))}" target="_blank" rel="noopener">WhatsApp</a></div>
+      <div class="row-actions wrap">
+        ${owner ? `<button class="btn ghost sm" type="button" data-action="book-rename" data-id="${esc(b.id)}">${esc(t("rename"))}</button>
+        <button class="btn ghost sm" type="button" data-action="book-recode" data-id="${esc(b.id)}">${esc(t("newCode"))}</button>
+        <button class="btn ghost sm danger-t" type="button" data-action="book-delete" data-id="${esc(b.id)}">${esc(t("deleteBook"))}</button>`
+        : `<button class="btn ghost sm danger-t" type="button" data-action="book-leave" data-id="${esc(b.id)}">${esc(t("leaveBook"))}</button>`}
+      </div></div>`;
+  }).join("");
+  return `<div class="card stack" id="s-books">
+    <h3>${esc(t("sBooks"))}</h3><p class="muted">${esc(t("sBooksHelp"))}</p>
+    ${rows}
+    <form id="f-book-new" class="inline-form" novalidate>
+      <div class="field grow"><label for="bk-name">${esc(t("newBook"))}</label><input id="bk-name" maxlength="40" placeholder="${esc(t("newBookPh"))}"></div>
+      <button class="btn" type="submit">${esc(t("create"))}</button></form>
+    <form id="f-book-join" class="inline-form" novalidate>
+      <div class="field grow"><label for="bk-code">${esc(t("joinBook"))}</label><input id="bk-code" maxlength="12" autocapitalize="characters" autocomplete="off" placeholder="ABCD2345" class="code-in"></div>
+      <button class="btn ghost" type="submit">${esc(t("join"))}</button></form>
+    <p class="form-err" id="bk-err" hidden></p>
+  </div>`;
+}
+const bookById = (id) => myBooks.find((b) => b.id === id);
+const myName = () => (data.profile && data.profile.name) || backend.user.displayName || backend.user.email;
+
+/* ============================================================
+   Daily reminder
+   Browsers cannot fire a notification on a schedule when the app is closed without a push server,
+   so the dependable route is a repeating calendar event. While the app is open (or in a background
+   tab) we also show a notification at the chosen time, and an in-app nudge if nothing was logged.
+   ============================================================ */
+const rem = () => Object.assign({ on: false, time: "21:00" }, prefs.reminder || {});
+const appURL = () => location.origin + location.pathname;
+const loggedToday = () => data.entries.some((e) => e.d === todayISO());
+function reminderDue() {
+  const r = rem(); if (!r.on) return false;
+  const [h, mi] = r.time.split(":").map(Number); const n = new Date();
+  return n.getHours() * 60 + n.getMinutes() >= h * 60 + mi;
+}
+function reminderCard() {
+  const r = rem();
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  return `<div class="card stack">
+    <h3>${esc(t("sReminder"))}</h3><p class="muted">${esc(t("sReminderHelp"))}</p>
+    <div class="inline-form">
+      <div class="field"><label for="r-time">${esc(t("remTime"))}</label><input id="r-time" type="time" value="${esc(r.time)}" style="max-width:9rem"></div>
+      <label class="switch"><input type="checkbox" id="r-on" ${r.on ? "checked" : ""}><span>${esc(t("remOn"))}</span></label>
+    </div>
+    <div class="row-actions wrap">
+      <a class="btn" id="r-gcal" href="${esc(gcalURL(r.time))}" target="_blank" rel="noopener">${esc(t("remGoogle"))}</a>
+      <button class="btn ghost" type="button" data-action="rem-ics">${esc(t("remIcs"))}</button>
+      ${perm === "default" ? `<button class="btn ghost" type="button" data-action="rem-perm">${esc(t("remAllow"))}</button>` : ""}
+    </div>
+    <p class="tiny muted">${esc(perm === "granted" ? t("remPermOk") : perm === "denied" ? t("remPermDenied") : t("remCalHelp"))}</p>
+  </div>`;
+}
+function nextAt(time) {
+  const [h, mi] = time.split(":").map(Number); const d = new Date(); d.setHours(h, mi, 0, 0);
+  if (d <= new Date()) d.setDate(d.getDate() + 1);
+  return d;
+}
+const icsStamp = (d) => `${d.getFullYear()}${C.pad(d.getMonth() + 1)}${C.pad(d.getDate())}T${C.pad(d.getHours())}${C.pad(d.getMinutes())}00`;
+function gcalURL(time) {
+  const s = nextAt(time), e = new Date(s.getTime() + 10 * 60000);
+  const q = new URLSearchParams({ action: "TEMPLATE", text: t("remEventTitle"), details: `${t("remEventBody")}\n${appURL()}`, dates: `${icsStamp(s)}/${icsStamp(e)}`, recur: "RRULE:FREQ=DAILY", ctz: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Colombo" });
+  return "https://calendar.google.com/calendar/render?" + q.toString();
+}
+function icsFile(time) {
+  const s = nextAt(time), e = new Date(s.getTime() + 10 * 60000), now = new Date();
+  const z = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Viyadam Pota//EN", "CALSCALE:GREGORIAN", "BEGIN:VEVENT",
+    `UID:viyadam-pota-reminder-${Date.now()}@viyadam-pota`, `DTSTAMP:${z(now)}`, `DTSTART:${icsStamp(s)}`, `DTEND:${icsStamp(e)}`,
+    "RRULE:FREQ=DAILY", `SUMMARY:${t("remEventTitle")}`, `DESCRIPTION:${t("remEventBody")}\\n${appURL()}`, `URL:${appURL()}`,
+    "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${t("remEventTitle")}`, "TRIGGER:PT0M", "END:VALARM", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+}
+let remTimer = null;
+function scheduleReminder() {
+  clearTimeout(remTimer);
+  const r = rem(); if (!r.on) return;
+  const ms = Math.min(nextAt(r.time) - new Date(), 2 ** 31 - 1);
+  remTimer = setTimeout(() => { fireReminder(); scheduleReminder(); }, ms);
+}
+async function fireReminder() {
+  if (!backend || loggedToday()) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") { if (!document.hidden) renderBanner(); return; }
+  const opts = { body: t("remEventBody"), icon: "icons/icon-192.png", badge: "icons/icon-192.png", tag: "daily-reminder" };
+  try { const reg = await navigator.serviceWorker?.getRegistration(); if (reg) return reg.showNotification(t("remEventTitle"), opts); } catch {}
+  try { new Notification(t("remEventTitle"), opts); } catch {}
 }
 
 /* ============================================================
@@ -785,6 +1029,52 @@ async function onAction(a, el) {
     case "next-week": off.week++; return renderWeek();
     case "prev-month": off.month--; return renderMonth();
     case "next-month": off.month++; return renderMonth();
+    case "mode-month": monthMode = "month"; return renderMonth();
+    case "mode-trends": monthMode = "trends"; return renderMonth();
+    case "trend-n": trendN = +el.dataset.n; return renderMonth();
+    case "scan": return $("#file-bill").click();
+    case "book-open": setActiveBook(backend.user, el.dataset.id); return go("today");
+    case "book-copy": {
+      const b = bookById(el.dataset.id); if (!b) return;
+      const txt = t("inviteMsg", b.name, b.inviteCode, appURL());
+      try { await navigator.clipboard.writeText(txt); toast(t("inviteCopied")); } catch { toast(b.inviteCode); }
+      return;
+    }
+    case "book-kick": {
+      const b = bookById(el.dataset.id); const nm = (b.memberNames || {})[el.dataset.uid] || "";
+      if ((await ask(t("kickAsk", nm), t("removeMember"))).ok) { try { await cloud.removeMember(b.id, el.dataset.uid); toast(t("done")); } catch (e) { toast(t("e_auth_other")); } }
+      return;
+    }
+    case "book-leave": {
+      const b = bookById(el.dataset.id);
+      if (!(await ask(t("leaveAsk", b.name), t("leaveBook"))).ok) return;
+      try { if (backend.bookId === b.id) setActiveBook(backend.user, null); await cloud.leaveBook(backend.user, b.id); toast(t("done")); } catch (e) { toast(t("e_auth_other")); }
+      return;
+    }
+    case "book-delete": {
+      const b = bookById(el.dataset.id);
+      if (!(await ask(t("deleteBookAsk", b.name), t("deleteBook"))).ok) return;
+      try { if (backend.bookId === b.id) setActiveBook(backend.user, null); await cloud.deleteBook(b); toast(t("done")); } catch (e) { console.error(e); toast(t("e_auth_other")); }
+      return;
+    }
+    case "book-recode": {
+      const b = bookById(el.dataset.id);
+      if (!(await ask(t("newCodeAsk"), t("newCode"), { danger: false })).ok) return;
+      try { await cloud.resetInvite(b); toast(t("done")); } catch (e) { console.error(e); toast(t("e_auth_other")); }
+      return;
+    }
+    case "book-rename": {
+      const b = bookById(el.dataset.id);
+      const r = await ask(t("renameAsk"), t("save"), { danger: false, text: b.name });
+      if (r.ok && r.value && r.value.trim()) { try { await cloud.renameBook(b.id, r.value.trim().slice(0, 40)); } catch (e) { toast(t("e_auth_other")); } }
+      return;
+    }
+    case "rem-ics": return download("viyadam-pota-reminder.ics", icsFile(rem().time), "text/calendar;charset=utf-8");
+    case "rem-perm": {
+      try { await Notification.requestPermission(); } catch {}
+      if (Notification.permission === "granted") { prefs.reminder = { ...rem(), on: true }; savePrefs(); scheduleReminder(); }
+      return renderSettings();
+    }
     case "pick-month": {
       const n = new Date();
       off.month = (+el.dataset.y - n.getFullYear()) * 12 + (+el.dataset.m - n.getMonth());
@@ -867,7 +1157,7 @@ async function onAction(a, el) {
       return toast(t("nameSaved"));
     }
     case "verify": try { await cloud.resendVerification(lang); toast(t("verifySent")); } catch (e) { toast(t(cloud.authErrorKey(e))); } return;
-    case "signout": stopBackend(); prefs.mode = "account"; savePrefs(); await cloud.signOutUser(); return;
+    case "signout": if (booksUnsub) booksUnsub(); booksUnsub = null; booksFor = null; myBooks = []; stopBackend(); data = emptyData(); view = "today"; prefs.mode = "account"; savePrefs(); await cloud.signOutUser(); return;
     case "delete-account": {
       const res = await ask(t("deleteAccountAsk"), t("deleteAccount"), { password: true });
       if (!res.ok || !res.value) return;
@@ -918,6 +1208,25 @@ function wireStatic() {
       const cat = { id: "c_" + newId(), si: name, en: name, color: newCatColor, type: $("#c-type").value, custom: true };
       backend.putMeta({ categories: [...data.categories, cat] });
       toast(t("added"));
+    } else if (f.id === "f-book-new" || f.id === "f-book-join") {
+      e.preventDefault();
+      const btn = f.querySelector("button[type=submit]"); btn.disabled = true;
+      try {
+        let id;
+        if (f.id === "f-book-new") {
+          const name = $("#bk-name").value.trim().slice(0, 40);
+          if (!name) { $("#bk-name").focus(); return; }
+          id = await cloud.createBook(backend.user, name, myName(), { categories: data.categories });
+          toast(t("bookCreated"));
+        } else {
+          id = await cloud.joinBook(backend.user, $("#bk-code").value, myName());
+          toast(t("bookJoined"));
+        }
+        setActiveBook(backend.user, id);
+      } catch (err) {
+        if (err.message !== "bad-code") console.error(err);
+        showErr("#bk-err", t(err.message === "bad-code" ? "badCode" : "e_auth_other"));
+      } finally { btn.disabled = false; }
     } else if (f.id === "f-pw") {
       e.preventDefault();
       const cur0 = $("#pw-cur").value, n1 = $("#pw-new").value, n2 = $("#pw-new2").value;
@@ -928,6 +1237,44 @@ function wireStatic() {
     }
   });
 
+  document.addEventListener("change", (e) => {
+    if (e.target.id === "book-sel") {
+      const v = e.target.value;
+      if (v === "__manage") { e.target.value = backend.bookId || ""; go("settings"); setTimeout(() => $("#s-books")?.scrollIntoView({ behavior: "smooth" }), 50); return; }
+      setActiveBook(backend.user, v || null);
+      return;
+    }
+    if (e.target.id === "r-time" || e.target.id === "r-on") {
+      prefs.reminder = { on: $("#r-on").checked, time: $("#r-time").value || "21:00" }; savePrefs();
+      const g = $("#r-gcal"); if (g) g.href = gcalURL(prefs.reminder.time);
+      scheduleReminder(); toast(prefs.reminder.on ? t("remSaved", prefs.reminder.time) : t("remOffMsg"));
+    }
+  });
+  $("#file-bill").addEventListener("change", async (e) => {
+    const file = e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    const st = $("#scan-status"), btn = $(".scan-btn");
+    const show = (html, kind = "") => { st.className = "scan-status " + kind; st.innerHTML = html; st.hidden = false; };
+    btn.disabled = true;
+    show(`<span class="spin"></span> ${esc(t("scanLoading"))}`);
+    try {
+      const { scanReceipt } = await import("./receipt.js");
+      const r = await scanReceipt(file, (p) => show(`<span class="spin"></span> ${esc(t("scanReading", Math.round(p * 100)))}`));
+      if (r.amount) {
+        if (form.type !== "exp") { form.type = "exp"; form.cat = null; }
+        $("#e-amount").value = r.amount;
+        if (r.date) $("#e-date").value = r.date;
+        if (r.merchant && !$("#e-note").value) $("#e-note").value = r.merchant;
+        if (r.category && data.categories.some((c) => c.id === r.category)) form.cat = r.category;
+        renderEntryForm();
+        show(`${esc(t(r.confidence === "high" ? "scanFound" : "scanGuess", money(r.amount)))}${r.date ? " · " + esc(shortDate(r.date)) : ""}`, r.confidence === "high" ? "ok" : "warn");
+        $("#e-amount").focus();
+      } else show(esc(t("scanNone")), "warn");
+    } catch (err) {
+      console.error(err);
+      show(esc(t(navigator.onLine === false ? "scanOffline" : "scanFail")), "warn");
+    } finally { btn.disabled = false; }
+  });
   $("#file-restore").addEventListener("change", async (e) => {
     const file = e.target.files[0]; e.target.value = "";
     if (!file) return;

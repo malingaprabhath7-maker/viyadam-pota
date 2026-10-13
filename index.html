@@ -102,6 +102,7 @@
     </nav>
 
     <main class="main">
+      <div id="bookbar" class="bookbar" hidden></div>
       <div id="banner"></div>
 
       <!-- TODAY -->
@@ -121,7 +122,9 @@
                 <button type="button" data-type="inc" data-t="income">ආදායම</button>
               </div>
               <label class="amount" for="e-amount"><span data-cur></span><input id="e-amount" inputmode="decimal" autocomplete="off" placeholder="0" aria-describedby="e-amount-hint"></label>
-              <small class="hint" id="e-amount-hint" data-t="amountHint"></small>
+              <div class="scan-row"><small class="hint" id="e-amount-hint" data-t="amountHint"></small>
+                <button type="button" class="btn ghost sm scan-btn" data-action="scan"><svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><path d="M8 9h8M8 12h8M8 15h5"/></svg><span data-t="scanBill">Bill එක scan කරන්න</span></button></div>
+              <div class="scan-status" id="scan-status" role="status" hidden></div>
               <div class="chips" id="e-cats" role="group"></div>
               <div class="grid2">
                 <div class="field"><label for="e-note" data-t="note">විස්තරය</label><input id="e-note" maxlength="120" autocomplete="off" list="note-suggest"></div>
@@ -170,5 +173,6 @@
   <div class="toast" id="toast" role="status" hidden><span id="toast-msg"></span><button type="button" id="toast-btn"></button></div>
   <input type="file" id="file-restore" accept="application/json,.json" hidden>
   <input type="file" id="file-photo" accept="image/*" hidden>
+  <input type="file" id="file-bill" accept="image/*" capture="environment" hidden>
 </body>
 </html>

@@ -88,3 +88,22 @@ test("normalise drops bad entries and repairs missing categories", () => {
   assert.equal(d.settings.lang, "si");
   assert.equal(normalise(null).categories.length, emptyData().categories.length);
 });
+
+test("trendSummary averages complete months and flags the current one", () => {
+  const today = C.fromISO("2026-10-13");
+  const entries = [
+    e("2026-08-02", 1000), e("2026-08-09", 500, { c: "fun" }),          // Aug 1500 (Sun 9th weekend)
+    e("2026-09-03", 2000), e("2026-09-10", 1000, { c: "fun" }),         // Sep 3000
+    e("2026-10-05", 400),                                                // Oct partial
+    { ...e("2026-09-01", 10000), type: "inc", c: "salary" },
+  ];
+  const t = C.trendSummary(entries, 2026, 9, 3, today);
+  assert.deepEqual(t.months.map((x) => [x.m, x.expense, x.partial]), [[7, 1500, false], [8, 3000, false], [9, 400, true]]);
+  assert.equal(t.avgExpense, 2250);
+  assert.equal(t.totalIncome, 10000);
+  assert.equal(t.saved, 10000 - 4900);
+  assert.equal(t.highest.m, 8);
+  const fun = t.categories.find((c) => c.c === "fun");
+  assert.equal(fun.last, 1000);
+  assert.equal(fun.change, 100); // Sep 1000 vs Aug 500
+});
